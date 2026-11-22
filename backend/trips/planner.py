@@ -25,12 +25,14 @@ from trips.geometry import (
 )
 from trips.providers import Providers
 from trips.remote import on_hour
-from trips.rules import classify, covered_miles, rank, summarize
+from trips.rules import classify, covered_miles, level_of, rank, summarize
 
 HEATMAP_HOURS = 49
 MAX_WEATHER_CELLS = 250
 CELL_SIZES = (0.25, 0.5, 1.0)
 MIN_CHECKPOINT_GAP_MI = 1.0
+WIND_DIGITS = 1
+PRECIP_DIGITS = 2
 
 
 @dataclass(frozen=True)
@@ -133,8 +135,14 @@ def plan_trip(request: PlanRequest, providers: Providers) -> Plan:
 
     heatmap_cells = []
     for cell in weather_cells:
+        hourly = hourly_by_cell[cell]
         levels = [
-            classify(_weather_at_hour(hourly_by_cell[cell], hour), request.load_lb).level
+            level_of(
+                round(hourly[hour].wind_mph, WIND_DIGITS),
+                round(hourly[hour].rain_in_hr, PRECIP_DIGITS),
+                round(hourly[hour].snow_in_hr, PRECIP_DIGITS),
+                request.load_lb,
+            )
             for hour in range(HEATMAP_HOURS)
         ]
         heatmap_cells.append(HeatmapCell(lon=cell[0], lat=cell[1], levels=levels))
@@ -168,17 +176,22 @@ def _checkpoint_miles(total_mi: float, interval_mi: int) -> list[float]:
 def _weather_cells(
     tracks: list[list[TrackPoint]], checkpoint_points: list[TrackPoint]
 ) -> tuple[float, list[Cell]]:
-    for candidate in CELL_SIZES:
-        cells = _cells_on_grid(tracks, checkpoint_points, candidate)
+    for candidate in CELL_SIZES[:-1]:
+        cells = _cells_on_grid(tracks, checkpoint_points, candidate, MAX_WEATHER_CELLS)
         if len(cells) <= MAX_WEATHER_CELLS:
             return candidate, cells
-    return CELL_SIZES[-1], cells
+    return CELL_SIZES[-1], _cells_on_grid(tracks, checkpoint_points, CELL_SIZES[-1])
 
 
 def _cells_on_grid(
-    tracks: list[list[TrackPoint]], checkpoint_points: list[TrackPoint], cell_deg: float
+    tracks: list[list[TrackPoint]],
+    checkpoint_points: list[TrackPoint],
+    cell_deg: float,
+    limit: int | None = None,
 ) -> list[Cell]:
-    cells = corridor_cells(tracks, cell_deg)
+    cells = corridor_cells(tracks, cell_deg, limit)
+    if limit is not None and len(cells) > limit:
+        return list(cells)
     cells |= {cell_of(lon, lat, cell_deg) for lon, lat, _seconds in checkpoint_points}
     return sorted(cells, key=lambda cell: (cell[1], cell[0]))
 
@@ -186,8 +199,8 @@ def _cells_on_grid(
 def _weather_at_hour(hourly: list[Weather], index: int) -> Weather:
     raw = hourly[index]
     return Weather(
-        wind_mph=round(raw.wind_mph, 1),
-        gust_mph=round(raw.gust_mph, 1),
-        rain_in_hr=round(raw.rain_in_hr, 2),
-        snow_in_hr=round(raw.snow_in_hr, 2),
+        wind_mph=round(raw.wind_mph, WIND_DIGITS),
+        gust_mph=round(raw.gust_mph, WIND_DIGITS),
+        rain_in_hr=round(raw.rain_in_hr, PRECIP_DIGITS),
+        snow_in_hr=round(raw.snow_in_hr, PRECIP_DIGITS),
     )

@@ -1,4 +1,4 @@
-"""Open-Meteo hourly forecast, cached per cell and hour."""
+"""Open-Meteo hourly forecast, cached per cell as one series from its start hour."""
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
@@ -33,17 +33,17 @@ def hourly(cells: list[Cell], start: datetime, end: datetime) -> dict[Cell, list
     start = on_hour(start)
     hours = max(1, int((on_hour(end) - start).total_seconds() // 3600) + 1)
 
-    times = [start + timedelta(hours=hour) for hour in range(hours)]
-    keys = {cell: [_cache_key(cell, when) for when in times] for cell in cells}
-    cached = cache.get_many([key for cell_keys in keys.values() for key in cell_keys])
+    keys = {cell: _cache_key(cell) for cell in cells}
+    cached = cache.get_many(list(keys.values()))
 
     series: dict[Cell, list[Weather]] = {}
     missing: list[Cell] = []
-    for cell, cell_keys in keys.items():
-        if all(key in cached for key in cell_keys):
-            series[cell] = [cached[key] for key in cell_keys]
-        else:
+    for cell, key in keys.items():
+        window = _cached_window(cached.get(key), start, hours)
+        if window is None:
             missing.append(cell)
+        else:
+            series[cell] = window
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         for fetched in pool.map(lambda chunk: _fetch(chunk, start, hours), chunks(missing, 100)):
@@ -76,7 +76,7 @@ def _fetch(cells: list[Cell], start: datetime, hours: int) -> dict[Cell, list[We
     except ValidationError:
         raise ProviderError(f"{SERVICE} returned an unexpected response.") from None
 
-    result = {}
+    result: dict[Cell, list[Weather]] = {}
     for cell, block in zip(cells, forecasts, strict=True):
         fields = {name: getattr(block, name) for name in OPENMETEO_FIELDS}
         if (
@@ -100,14 +100,11 @@ def _fetch(cells: list[Cell], start: datetime, hours: int) -> dict[Cell, list[We
             )
             for hour in range(hours)
         ]
-        cache.set_many(
-            {
-                _cache_key(cell, start + timedelta(hours=hour)): weather
-                for hour, weather in enumerate(forecast)
-            },
-            WEATHER_CACHE_SECONDS,
-        )
         result[cell] = forecast
+    cache.set_many(
+        {_cache_key(cell): (start, forecast) for cell, forecast in result.items()},
+        WEATHER_CACHE_SECONDS,
+    )
     return result
 
 
@@ -126,5 +123,17 @@ def _fill_gaps(values: list[float | None]) -> list[float] | None:
     return filled
 
 
-def _cache_key(cell: Cell, when: datetime) -> str:
-    return f"weather:{cell[0]:.2f}:{cell[1]:.2f}:{when.astimezone(UTC):%Y-%m-%dT%H}"
+def _cached_window(
+    entry: tuple[datetime, list[Weather]] | None, start: datetime, hours: int
+) -> list[Weather] | None:
+    if entry is None:
+        return None
+    cached_start, forecast = entry
+    offset = int((start - cached_start).total_seconds() // 3600)
+    if offset < 0 or offset + hours > len(forecast):
+        return None
+    return forecast[offset : offset + hours]
+
+
+def _cache_key(cell: Cell) -> str:
+    return f"weather:{cell[0]:.2f}:{cell[1]:.2f}"

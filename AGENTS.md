@@ -53,7 +53,7 @@ The reason compares the winner with each other route on the first key where it w
 1. TomTom truck routing, three routes, vehicle weight = cargo + 35,000 lb tare, `traffic=false` (live traffic made TomTom drop alternatives; historical speeds still shape ETAs).
 2. Cumulative miles along each track; checkpoints at the chosen interval plus the destination; driving time interpolated from TomTom's travel times, then a 10-hour break after each 11 hours of driving. A point reached at exactly 11 hours is before the break. Track positions stay still during breaks.
 3. Weather cells within 15 miles of any track, plus any checkpoint cell. The grid is 0.25°, moved to 0.5° or 1° only when 0.25° would exceed 250 cells.
-4. Open-Meteo hourly forecast for the needed hours, batched 100 cells per request, up to four requests in parallel, cached per cell and hour for 30 minutes.
+4. Open-Meteo hourly forecast for the needed hours, batched 100 cells per request, up to four requests in parallel, cached per cell for 30 minutes as one series, sliced when it covers the window.
 5. Classify every checkpoint, summarise the route by level, rank, and write the reason.
 6. Heatmap: the same classifier for every cell and each of the 49 hours.
 

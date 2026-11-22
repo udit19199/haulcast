@@ -3,14 +3,22 @@
 import logging
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
+from http.cookiejar import DefaultCookiePolicy
 from time import monotonic
 
 import requests
 from django.conf import settings
+from requests.adapters import HTTPAdapter
 
 logger = logging.getLogger(__name__)
 
 Json = object
+
+# Shared so provider calls reuse keep-alive connections. Sized for Gunicorn's 8 threads;
+# cookies are refused so the session holds no per-request state.
+_session = requests.Session()
+_session.mount("https://", HTTPAdapter(pool_connections=4, pool_maxsize=8))
+_session.cookies.set_policy(DefaultCookiePolicy(allowed_domains=[]))
 
 
 class ProviderError(Exception):
@@ -31,7 +39,7 @@ def get_json(
     timeout = settings.PROVIDER_TIMEOUT_S
     started = monotonic()
     try:
-        response = requests.get(url, params=params, timeout=timeout)
+        response = _session.get(url, params=params, timeout=timeout)
     except requests.RequestException:
         log_failure(service, None, started)
         raise ProviderError(f"{service} is unavailable right now.") from None
