@@ -75,12 +75,22 @@ def _load_level(mph: float, load_lb: int) -> Level | None:
     return None
 
 
-def classify(weather: Weather, load_lb: int) -> Assessment:
-    load_level = _load_level(weather.wind_mph, load_lb)
-    wind = max(_level_for(weather.wind_mph, WIND), load_level or Level.LOW)
+def _wind_level(mph: float, load_lb: int) -> Level:
+    return max(_level_for(mph, WIND), _load_level(mph, load_lb) or Level.LOW)
 
+
+def level_of(wind_mph: float, rain_in_hr: float, snow_in_hr: float, load_lb: int) -> Level:
+    """The level `classify` gives, without the per-condition levels or the cause."""
+    return max(
+        _wind_level(wind_mph, load_lb),
+        _level_for(rain_in_hr, RAIN),
+        _level_for(snow_in_hr, SNOW),
+    )
+
+
+def classify(weather: Weather, load_lb: int) -> Assessment:
     levels = Levels(
-        wind=wind,
+        wind=_wind_level(weather.wind_mph, load_lb),
         rain=_level_for(weather.rain_in_hr, RAIN),
         snow=_level_for(weather.snow_in_hr, SNOW),
     )
@@ -90,7 +100,7 @@ def classify(weather: Weather, load_lb: int) -> Assessment:
         cause = "no condition above Low"
     elif levels.wind == level:
         cause = f"wind {weather.wind_mph:.1f} mph"
-        if load_level is not None:
+        if _load_level(weather.wind_mph, load_lb) is not None:
             cause += f" with {load_lb:,} lb load"
     elif levels.snow == level:
         cause = f"snow {weather.snow_in_hr:.2f} in/hr"

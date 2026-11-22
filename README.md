@@ -45,7 +45,7 @@ The Playwright suite drives the real UI against recorded routes. CI runs lint, t
 - **One entry point.** The root `Makefile` wraps both halves of the repo, and each target mirrors a CI job, so a local pass means what a green CI means.
 - **One owner for the rules.** Thresholds and load rules live in `backend/trips/rules.py`. The API sends levels as numbers; `frontend/src/lib/levels.ts` maps them to names and colours.
 - **One request per plan.** The response carries the routes, checkpoints and all 49 forecast hours, so the slider only repaints the map.
-- **No database.** A plan is computed from live data; weather is cached per cell and hour for 30 minutes in the one Gunicorn process.
+- **No database.** A plan is computed from live data; weather is cached per cell for 30 minutes in the one Gunicorn process.
 - **Small state, small surface.** One container serves the API and the built front end, with the key only on the server.
 - **End-to-end tests.** They fail the way a user would notice: a wrong band edge, ranking or mile count.
 

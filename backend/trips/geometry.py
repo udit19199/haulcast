@@ -117,16 +117,30 @@ def _add_cells_near(cells: set[Cell], lon: float, lat: float, cell_deg: float) -
                 cells.add(cell)
 
 
-def corridor_cells(tracks: list[list[TrackPoint]], cell_deg: float) -> set[Cell]:
+def corridor_cells(
+    tracks: list[list[TrackPoint]], cell_deg: float, limit: int | None = None
+) -> set[Cell]:
+    """Cells near any track. Stops early, with a partial set, once it has more than `limit`."""
     cells: set[Cell] = set()
+    # Alternatives share long stretches, so the same sample point recurs across tracks.
+    sampled: set[tuple[float, float]] = set()
+
+    def add_near(lon: float, lat: float) -> bool:
+        if (lon, lat) not in sampled:
+            sampled.add((lon, lat))
+            _add_cells_near(cells, lon, lat, cell_deg)
+        return limit is not None and len(cells) > limit
+
     for track in tracks:
         cells.update(cell_of(lon, lat, cell_deg) for lon, lat, _seconds in track)
-        _add_cells_near(cells, track[-1][0], track[-1][1], cell_deg)
+        if add_near(track[-1][0], track[-1][1]):
+            return cells
         for start, end in pairwise(track):
             steps = max(1, ceil(haversine(start[0], start[1], end[0], end[1]) * 2))
             for step in range(steps):
                 fraction = step / steps
                 lon = start[0] + (end[0] - start[0]) * fraction
                 lat = start[1] + (end[1] - start[1]) * fraction
-                _add_cells_near(cells, lon, lat, cell_deg)
+                if add_near(lon, lat):
+                    return cells
     return cells
